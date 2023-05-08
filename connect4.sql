@@ -1,0 +1,1 @@
+SELECT * FROM connect4.games;
