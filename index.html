@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <script src="./client_tools.js"></script>
+    <script>
+        
+        let username, password, txtUsername, txtPassword;
+        let divGame, divNames, divBoard, endGame;
+        let pLoginMessage, col;
+        let divCells = [];
+        let gameId, lblGameId, btnLeaveGame, hwin;
+        let arrCols = [[35, 28, 21, 14, 7, 0], [36, 29, 22, 15, 8, 1], [37, 30, 23, 16, 9, 2], [38, 31, 24, 17, 10, 3], [39, 32, 25, 18, 11, 4], [40, 33, 26, 19, 12, 5], [41, 34, 27, 20, 13, 6]];
+
+        //divs creation and ref.
+        function init() {
+            divGame = document.getElementById("divGame");
+            divLobby = document.getElementById("divLobby");
+            pLoginMessage = document.getElementById("pLoginMessage");
+            txtUsername = document.getElementById("txtUsername");
+            txtPassword = document.getElementById("txtPassword");
+            divNames = document.getElementById("divNames");
+            lblGameId = document.getElementById("lblGameId");
+            divBoard = document.getElementById("divBoard");
+            btnLeaveGame = document.getElementById("btnLeaveGame");
+            endGame = document.getElementById("endGame");
+            hwin = document.getElementById("hwin");
+            for (let i = 0; i < 42; i++) {
+                let divcell = document.createElement("div");
+                divcell.id = "divcell" + i;
+                divcell.className = "divcell";
+                divCells.push(divcell);
+                divcell.i = i;
+                
+                
+                divcell.onclick = (event)=>{
+                    let i = event.target.i;
+                    col = i % 7;
+                    let arr = arrCols[col]; 
+                    for(let j = 0; j < arr.length; j++){
+                        if(divCells[arr[j]].style.backgroundColor == ""){                          
+                            sendHttpGetRequest('api/play_cell?username='+username+'&password='+password+'&id='+gameId+'&cell='+arr[j], (response)=>{
+                                if(response){
+                                    //do we have a winner?
+                                    sendHttpGetRequest('api/win?username='+username+'&password='+password+'&id='+gameId, (response)=>{
+                                        if(response){
+                                            console.log(response);
+                                        }
+                                        
+                                    });
+                                   
+                                }
+                            });
+                            return;
+                        }else{
+                            continue;
+                        }  
+                    } 
+                };
+                divBoard.appendChild(divcell);
+            }
+        }
+        
+        function show(element) {
+            let shown = document.getElementsByClassName('shown');
+            if (shown.length == 1) {
+                shown[0].classList.add('hidden');
+                shown[0].classList.remove('shown');
+            }
+            element.classList.add('shown');
+            element.classList.remove('hidden');
+        }
+
+
+        //locking the bottuns and sending to the database 
+        function btnLoginSignupClicked(loginorsignup) {
+            username = txtUsername.value;
+            password = txtPassword.value;
+            if (!username || !password) return;
+            let elements = document.getElementsByClassName("lock");
+            for (let e in elements) {
+                e.disabled = true;
+            }
+            pLoginMessage.innerHTML = "";
+            sendHttpGetRequest('api/' + loginorsignup + '?username=' + username + '&password=' + password, (response) => {
+                for (let e in elements) {
+                    e.disabled = false;
+                }
+                if (response == "ok") {
+                    show(divLobby);
+                    getLobby();
+                } else if (response == "taken") {
+                    pLoginMessage.innerHTML = "sorry... this username already taken:)";
+                } else if (response == "invalid") {
+                    pLoginMessage.innerHTML = "sorry... this username or password is invalid:)";
+                }
+            })
+        }
+        //checking who is in the lobby and if we can start the game
+        function getLobby() {
+            sendHttpGetRequest('api/get_lobby?username=' + username + '&password=' + password, (response) => {
+                let usersInLobby = JSON.parse(response);
+                removeAllChildNodes(divNames);
+                let existsInList = false;
+                for (let i = 0; i < usersInLobby.length; i++) {
+                    if (usersInLobby[i].username == username) {
+                        existsInList = true;
+                        continue;
+                    }
+                    let p = document.createElement("p");
+                    p.id = "pUsersInLobby";
+                    p.innerHTML = usersInLobby[i].username;
+                    divNames.appendChild(p);
+                    p.onclick = (event) => {
+                        let partner = event.target.innerHTML;
+                        sendHttpGetRequest('api/start_game?username=' + username + '&password=' + password + '&partner=' + partner, (response) => {
+                            if (response == "error") {
+                                alert("there is an error, please try again");
+                            }
+
+                        });
+                    };
+                }
+                if (existsInList) {
+                    setTimeout(getLobby, 500);
+                } else {
+                    
+                    sendHttpGetRequest('api/get_game_id?username=' + username + '&password=' + password, (response) => {
+                        if (response) {
+                            gameId = parseInt(response);
+                            lblGameId.innerHTML = "Your game id is: " + gameId;
+                            show(divGame);
+                            getGameStatus();
+                        }
+                    });
+                }
+            });
+        }
+        function getGameStatus() {  //מרנדר את המסך לפי סטטוס המשחק
+            sendHttpGetRequest('api/get_game_status?username=' + username + '&password=' + password + '&id=' + gameId, (response) => {
+                let gameStatus = JSON.parse(response);  
+                if (gameStatus.active) {
+                    for (let i = 0; i < 42; i++) {
+                        let cellStatus = gameStatus.board[i];  //לאובייקט יש תכונה של בורד והוא מערך
+                        if (cellStatus == 0) {
+                            divCells[i].style.backgroundColor = "";
+                        } else if (cellStatus == 1) {
+                            divCells[i].style.backgroundColor = "red";
+                        } else if (cellStatus == 2) {
+                            divCells[i].style.backgroundColor = "blue";
+                        }
+                    }
+                    
+                    if(gameStatus.win){
+                        sendHttpGetRequest('api/win?username='+username+'&password='+password+'&id='+gameId, (r)=>{
+                        let res = JSON.parse(r);
+                        show(endGame);
+                        hwin.innerHTML = "The winner is "+ res +"!!";
+                        setTimeout(btnLeaveGameClicked, 5000);
+                        });
+                    }
+                    setTimeout(getGameStatus, 1);
+                } else {
+                    show(divLobby);
+                    getLobby();
+                }
+            });
+        }
+
+        
+        function btnLeaveGameClicked() {
+            let elements = document.getElementsByClassName("lock");
+            for (let e in elements) {
+                e.disabled = true;
+            }
+            sendHttpGetRequest('api/leave_game?username=' + username + '&password=' + password, (response) => {
+                for (let e in elements) {
+                    e.disabled = false;
+                }
+                if (response == "ok") {
+                    show(divLobby);
+                    getLobby();
+                }
+            });
+        }
+
+        function removeAllChildNodes(node) {
+            while (node.firstChild)
+                node.removeChild(node.firstChild);
+        }
+
+
+    </script>
+    <link rel="stylesheet" href="style.css" />
+    <title>Connect Four Game</title>
+</head>
+
+<body onload="init()">
+    <h1>Connect Four</h1>
+    <div id="divLoginOrSignUp" class="shown">
+        <h2 id="h2LoginSignupId">Login / Sign Up</h2>
+        <p id="pUserName">Username: <input class="lock" type="text" id="txtUsername" /></p>
+        <p id="pPassword">Password: <input class="lock" type="password" id="txtPassword" /></p>
+        <p id="pButtonLogin"><button id="btnLogin" class="lock"
+                onclick="btnLoginSignupClicked('login')">Login</button><button id="btnSingup" class="lock"
+                onclick="btnLoginSignupClicked('signup')">Signup</button></p>
+        <p id="pLoginMessage"></p>
+
+    </div>
+
+    <div id="divLobby" class="hidden">
+        <h2 id="h2LobbyId">Lobby</h2>
+        <div id="divNames"></div>
+    </div>
+
+    <div id="divGame" class="hidden">
+        <h2 id="hDivGame">Game</h2>
+        <p id="lblGameId"></p>
+        <div id="divBoard"></div>
+        <p><button class="lock" id="btnLeaveGame" onclick="btnLeaveGameClicked()">Leave game</button></p>
+        
+    </div>
+    <div id="endGame" class="hidden">
+        <h2 id="hwin"></h2>
+    </div>
+
+
+
+
+</body>
+</html>
